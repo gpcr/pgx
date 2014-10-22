@@ -61,7 +61,9 @@ def main():
     
     	#find zygosity and reference matching to record
     	if (call.gt_type is not 0):
-    		assocAllelesRecordSet = processAssocAlleles(str(refrecord.INFO['AscAlleles']))
+    		recordReadDepthList = call['AD']
+    		assocAllelesRecordSet = processAssocAlleles(
+    		refrecord.INFO['AscAlleles'][recordReadDepthList[1:].index(max(recordReadDepthList[1:]))])
     		for refSite in refSites:
 				assocAllelesRefSet = processAssocAlleles(refSite.associatedAlleles)
 				if (assocAllelesRecordSet.intersection(assocAllelesRefSet) 
@@ -114,6 +116,7 @@ def readInRefSites(refSiteFilename):
 
 #processes a string of associated alleles -- extracts *n values from string.
 #returns set of *n values
+#fix to take into account that [*2, *3] means first variant corr to *2, second corresponds to *3
 def processAssocAlleles(assocAllelesStr):
 	assocAlleles = re.sub(r'[^0-9A-Z*]+', '$', assocAllelesStr)
 	if assocAlleles[0] == '$':
