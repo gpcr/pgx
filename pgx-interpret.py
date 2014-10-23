@@ -59,41 +59,24 @@ def main():
     	#print refrecord.ALT, record.ALT
     
     
-    	#find zygosity and reference matching to record
+    	#find reference with the same set of *alleles as the record.
     	if (call.gt_type is not 0):
     		recordReadDepthList = call['AD']
+    		
+    		#find associated alleles for just the variant allele with the most reads
     		assocAllelesRecordSet = processAssocAlleles(
     		refrecord.INFO['AscAlleles'][recordReadDepthList[1:].index(max(recordReadDepthList[1:]))])
     		for refSite in refSites:
 				assocAllelesRefSet = processAssocAlleles(refSite.associatedAlleles)
-				if (assocAllelesRecordSet.intersection(assocAllelesRefSet) 
+				if (assocAllelesRecordSet == assocAllelesRefSet
 				and refSite.gene == refrecord.INFO['Gene'] and call['AD']):
-					readDepthList = list(call['AD'])					
-					highestCount = max(readDepthList)
-					readDepthList.remove(highestCount)
-					secondHighestCount = max(readDepthList)
-					if highestCount != 0:
-						if float(secondHighestCount) / highestCount >= 0.5:
-							zygosity = 'HET'
-						elif call['AD'][0] == highestCount:
-							zygosity = 'HOM-REF'
-						else:
-							zygosity = 'HOM-ALT'
 							
-					#output results to file		
-					outFile.write(refSite.gene + '\t' + refSite.rsVariantID + '\t' +
-					refSite.variantGenomicPos + '\t' + refSite.variantTranscriptPos +
-					'\t' + zygosity + '\t')
-					isFirstReadDepth = 1
-					for readDepth in call['AD']:
-						if readDepth in [highestCount, secondHighestCount]:
-							outFile.write(str(readDepth))
-							if isFirstReadDepth:
-								outFile.write(',')
-							isFirstReadDepth = 0
-					outFile.write('\t' + str(refSite.associatedAlleles) + '\n')
-							
+					#output results to file	
+					writeResults(outFile, refSite, call['AD'])	
+						
   outFile.close()
+
+
 
 #reads in tab-separated reference site file. in each row: associatedAlleles, cypVariantID, 
 #gene, rsVariantID, variantGenomicPos, variantTranscriptPos.
@@ -114,9 +97,9 @@ def readInRefSites(refSiteFilename):
 	return refSites
 	refSiteFile.close()
 
+
 #processes a string of associated alleles -- extracts *n values from string.
 #returns set of *n values
-#fix to take into account that [*2, *3] means first variant corr to *2, second corresponds to *3
 def processAssocAlleles(assocAllelesStr):
 	assocAlleles = re.sub(r'[^0-9A-Z*]+', '$', assocAllelesStr)
 	if assocAlleles[0] == '$':
@@ -126,5 +109,45 @@ def processAssocAlleles(assocAllelesStr):
 	return set(assocAlleles.split('$'))
 
 
+#returns top n values in given list, in descending order.
+def calcMaxNValuesInList(list1, n):
+	list2 = list(list1)	
+	maxVals=[]
+	for i in range(min(len(list2), n)):				
+		highestVal = max(list2)
+		maxVals += [highestVal]
+		list2.remove(highestVal)
+	return maxVals
+	
+	
+#calculates zygosity given a list of reference and variant allele read depths.
+#returns string.
+def calcZygosity(readDepthList):
+	highestCount, secondHighestCount = calcMaxNValuesInList(readDepthList, 2)
+	if highestCount != 0:
+		if float(secondHighestCount) / highestCount >= 0.5:
+			return 'HET'
+		elif readDepthList[0] == highestCount:
+			return 'HOM-REF'
+		else:
+			return 'HOM-ALT'
+	return 'undefined'
+
+#writes info to output file
+def writeResults(outFile, refSite, readDepths):
+	zygosity = calcZygosity(readDepths)
+	outFile.write(refSite.gene + '\t' + refSite.rsVariantID + '\t' +
+	refSite.variantGenomicPos + '\t' + refSite.variantTranscriptPos +
+	'\t' + zygosity + '\t')
+	isFirstReadDepth = 1
+	for readDepth in readDepths:				
+		if readDepth in calcMaxNValuesInList(readDepths, 2):
+			outFile.write(str(readDepth))
+			if isFirstReadDepth:
+				outFile.write(',')
+			isFirstReadDepth = 0			
+	outFile.write('\t' + str(refSite.associatedAlleles) + '\n')						
+	
+							
 if __name__ == '__main__':
   main()
