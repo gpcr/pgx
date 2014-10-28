@@ -8,92 +8,108 @@ import pgxClasses
 import re
 
 def main():
-  parser = argparse.ArgumentParser()
-  parser.add_argument("-v","--verbose")
-  parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default='pgx_genotyper_input.vcf')
-  parser.add_argument("--ref_site_filename", type=str, default='pgxRefSites.txt')
-  parser.add_argument("--gene_filename", type=str, default='pgxGenes.txt')
-  parser.add_argument("--out_filename", type=str, default='out.txt')
-  parser.add_argument("-d","--depth", type=int, default=30)
-  parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
-  args = parser.parse_args()
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-v","--verbose")
+	parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default='pgx_genotyper_input.vcf')
+	parser.add_argument("--ref_site_filename", type=str, default='pgxRefSites.txt')
+	parser.add_argument("--gene_filename", type=str, default='pgxGenes.txt')
+	parser.add_argument("--out_filename", type=str, default='out.txt')
+	parser.add_argument("-d","--depth", type=int, default=30)
+	parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
+	args = parser.parse_args()
 
-  refSites = readInRefSites(args.ref_site_filename)
-  delimRE = r'[\s,;\/\\]+'
-  genes = readInGenes(args.gene_filename, delimRE)
-  outFile = open(args.out_filename,'w')
-  outFile.write('Gene\tVariant ID (rs#)\tVariant (genomic position)\tVariant (transcript' 
-  + ' position)\tZygosity\tRead Depth by reference base, variant\tAssociated *Alleles\n')
+	delimREGenesFile = r'[\s,;\/\\]+'
+	delimREAssocAlleles = r'[^0-9A-Z*]+'
+	genes = readInGenes(args.gene_filename, delimREGenesFile)
+	allRefSites = readInRefSites(args.ref_site_filename, [z.name for z in genes], delimREAssocAlleles)
+	finalRefSites = [] 	#ref sites to output
+	outFile = open(args.out_filename,'w')
+	outFile.write('Gene\tVariant ID (rs#)\tVariant (genomic position)\tVariant (transcript' 
+  	+ ' position)\tZygosity\tRead Depth by reference base, variant\tAssociated *Alleles\n')
   
-  # Set up reference tables
-  tagsites = list(vcf.Reader(args.ref_vcf))
-  for samplefile in args.vcf_file:
-    # Process a sample
-    sample = vcf.Reader(samplefile)
-    if len(sample.samples) > 1:
-      print 'Interpretation of multi-sample VCF files not implemented'
-      sys.exit(1)
+	# Set up reference tables
+	tagsites = list(vcf.Reader(args.ref_vcf))
+	for samplefile in args.vcf_file:
+		# Process a sample
+		sample = vcf.Reader(samplefile)
+		if len(sample.samples) > 1:
+			print 'Interpretation of multi-sample VCF files not implemented'
+			sys.exit(1)
 
-    ID = sample.samples[0]
-#    print ID
-    for (refrecord, record) in vcf.utils.walk_together(iter(tagsites),sample, kwargs=lambda r: (r.CHROM, r.POS, r.REF, R.ALT)):
-      if refrecord is None:
-         print 'ERROR: novel variant?', record
-         sys.exit(1)
-      if record is None:
-#         if args.verbose or 'AscAlleles' in refrecord.INFO: 
-#          print 'WARNING: tagsite missing', refrecord
-         continue 
+		ID = sample.samples[0]
+		print ID
+		for (refrecord, record) in vcf.utils.walk_together(iter(tagsites),sample, kwargs=lambda r: (r.CHROM, r.POS, r.REF, R.ALT)):
+			if refrecord is None:
+				print 'ERROR: novel variant?', record
+				sys.exit(1)
+			if record is None:
+				if args.verbose or 'AscAlleles' in refrecord.INFO: 
+					print 'WARNING: tagsite missing', refrecord
+				continue 
 
-      depth = 0
-      if 'DP' in record.INFO:
-        depth = record.INFO['DP']
-      if depth < args.depth:
-         if args.verbose or 'AscAlleles' in refrecord.INFO:
-           print 'WARNING: Low reads on tag site!', record, record.genotype(ID)
+			depth = 0
+			if 'DP' in record.INFO:
+				depth = record.INFO['DP']
+			if depth < args.depth:
+				if args.verbose or 'AscAlleles' in refrecord.INFO:
+					print 'WARNING: Low reads on tag site!', record, record.genotype(ID)
 
-      if 'AscAlleles' in refrecord.INFO:
-        call = record.genotype(ID)
-        if call.gt_type is 0:
-          spacer = '\t'
-        else:
-          spacer = ''
-        #print spacer, ID, refrecord.INFO['Gene'], refrecord.INFO['AscAlleles'], call
-    	#print refrecord.ALT, record.ALT
-    
-    
-    	#find reference with the same set of *alleles as the record.
-    	if (call.gt_type is not 0):
-    		recordReadDepthList = call['AD'] 		
-    		#find associated alleles for just the variant allele with the most reads
-    		assocAllelesRecordSet = set(processStrToList(
-    		refrecord.INFO['AscAlleles'][recordReadDepthList[1:].index(max(recordReadDepthList[1:]))], delimRE))
-    		for refSite in refSites:
-				assocAllelesRefSet = set(processStrToList(refSite.associatedAlleles, delimRE))
-				if (assocAllelesRecordSet == assocAllelesRefSet
-				and refSite.pgxGene == refrecord.INFO['Gene'] and call['AD']):							
-					#output results to file	
-					writeResults(outFile, refSite, call['AD'])	
-						
-  outFile.close()
+			if 'AscAlleles' in refrecord.INFO:
+				call = record.genotype(ID)
+				if call.gt_type is 0:
+					spacer = '\t'
+				else:
+					spacer = ''
+				print spacer, ID, refrecord.INFO['Gene'], refrecord.INFO['AscAlleles'], call
+				#print refrecord.ALT, record.ALT	
 
-
-
+				#find associated alleles for just the variant allele with the most reads
+				try:
+					call['AD']
+				except AttributeError:
+					continue
+				assocAllelesRecordSet = set(processStrToList(
+				refrecord.INFO['AscAlleles'][call['AD'][1:].index(max(call['AD'][1:]))], delimREAssocAlleles))
+				#find reference with the same set of *alleles as the record. 
+				for i in range(len(allRefSites)):
+						if (assocAllelesRecordSet == allRefSites[i].assocAllelesParsed) and (allRefSites[i].geneName == refrecord.INFO['Gene']):
+							if allRefSites[i].readDepths == 'undefined':
+								allRefSites[i].readDepths = [[z for z in call['AD'] if z in calcMaxNValuesInList(call['AD'], 2)]]
+							else:
+								allRefSites[i].readDepths += [[z for z in call['AD'] if z in calcMaxNValuesInList(call['AD'], 2)]]
+							allRefSites[i].zygosity = calcZygosity(allRefSites[i].readDepths[-1])
+							if call.gt_type is not 0:
+								finalRefSites += [allRefSites[i]]
+								printRefSite(allRefSites[i], outFile)		
+	#output genotypes, phenotypes						 
+	for gene in genes:
+		gene.genotype = calcGenotype(gene, [z for z in finalRefSites if z.geneName == gene.name], allRefSites, outFile)
+		gene.phenotype = calcPhenotype(gene)
+	outFile.write('\nGene\t*Alleles\tAllele functional status\tExpected phenotype\n')
+	for gene in genes:
+		outFile.write(gene.name + '\t' + '/'.join(gene.genotype) + '\t' + ' / '.join(gene.funcStatus) +'\t' + gene.phenotype + '\n')
+	outFile.close()
+	
 #reads in tab-separated reference site file. in each row: associatedAlleles, cypVariantID, 
 #gene, rsVariantID, variantGenomicPos, variantTranscriptPos.
 #returns list of pgxClasses.pgxRefSite objects.
-def readInRefSites(filename):
+def readInRefSites(filename, geneNames, delimRE):
 	fields = pgxClasses.pgxRefSite().__dict__.keys()
 	refSites=[]
 	f = open(filename)
 	for rowNum, row in enumerate(f, start=1):
-		if row==['']: #ignore blank rows
-			return
 		row = row.strip().split('\t')
-		checkRowLen(filename, row, rowNum, fields, '\\t')
-		refSites += [pgxClasses.pgxRefSite(*row)]
-	return refSites
+		if row==['']: 
+			continue
+		checkRowLen(filename, row, rowNum, fields[:-3], '\\t')
+		refSite = pgxClasses.pgxRefSite(*row)
+		if refSite.geneName not in geneNames:
+			throwError(filename, rowNum, 'Unrecognized gene name: ' + refSite.geneName +
+			'\nAcceptable values: '	+ ', '.join(geneNames) + '. Specify genes in gene file.')	
+		refSite.assocAllelesParsed = set(processStrToList(refSite.associatedAlleles, delimRE))
+		refSites += [refSite]
 	f.close()
+	return refSites
 
 
 #reads in tab-separated genes file.
@@ -104,14 +120,14 @@ def readInGenes(filename, delimRE):
 	f = open(filename)
 	for rowNum, row in enumerate(f, start=1):
 		row = row.strip().split('\t')
-		if row==['']: #ignore blank rows
+		if row==['']:
 			continue
 		if row[0][0] == geneStartSymbol:
 			row[0] = row[0][1:]
 			genes += [pgxClasses.pgxGene()]
  		if row[0] not in fields:
-			throwError(filename, rowNum, 'First value in row must be a pgxGene field.\nAcceptable values: '	+ ', '.join(fields))	
-		#dict of pgxGene field : expected row format
+			throwError(filename, rowNum, 'First value in row must be a geneName field.\nAcceptable values: '	+ ', '.join(fields))	
+		#dict of geneName field : expected row format
 		rowFormatDict = dict([('name', ['name', '[geneName]']), ('defaultAllele', ['defaultAllele', '[default*Allele]']), 
 		('alleleFunc', ['alleleFunc', '[funcLevelID]', '[label]', '[assoc*Alleles]']), ('phen', ['phen', '[phenotypeLabel]', '[alleleFuncPairs]'])])	
 		checkRowLen(filename, row, rowNum, rowFormatDict[row[0]], '\\t')
@@ -153,6 +169,7 @@ def readInGenes(filename, delimRE):
 				geneObj.phen[row[1]] = funcPairs
 			else:
 				throwError(filename, rowNum, 'Specified phenotype already exists for gene.')
+	f.close()
 	return genes		
 			
 			
@@ -171,9 +188,9 @@ def checkRowLen(filename, row, rowNum, format, delim):
 #converts string with elements separated by delimRE, into list 
 def processStrToList(str, delimRE):
 	str = re.sub(delimRE, '$', str)
-	if str[0] == '$':
+	if len(str)>0 and str[0] == '$':
 		str = str[1:]
-	if str[-1] == '$':
+	if len(str)>0 and str[-1] == '$':
 		str = str[:-1]
 	return str.split('$')
 
@@ -198,23 +215,75 @@ def calcZygosity(readDepthList):
 			return 'HOM-REF'
 		else:
 			return 'HOM-ALT'
-	return 'undefined'
+	return 'undefined'				
 
-#writes info to output file
-def writeResults(outFile, refSite, readDepths):
-	zygosity = calcZygosity(readDepths)
-	outFile.write(refSite.pgxGene + '\t' + refSite.rsVariantID + '\t' +
-	refSite.variantGenomicPos + '\t' + refSite.variantTranscriptPos +
-	'\t' + zygosity + '\t')
-	isFirstReadDepth = 1
-	for readDepth in readDepths:				
-		if readDepth in calcMaxNValuesInList(readDepths, 2):
-			outFile.write(str(readDepth))
-			if isFirstReadDepth:
-				outFile.write(',')
-			isFirstReadDepth = 0			
-	outFile.write('\t' + str(refSite.associatedAlleles) + '\n')						
 
-				
+#returns pair [*a, *b] indicating genotype	
+#operates on refSites pertaining to single gene
+def calcGenotype(gene, refSites, allRefSites, outFile):
+	for refSite in refSites:
+		if refSite.geneName != gene.name:
+			raise Exception('Ref site does not correspond to gene')
+		if len(refSite.assocAllelesParsed) == 0:
+			raise Exception('Ref site has no associated alleles')		
+			
+	if len(refSites) == 0:
+		return [gene.defaultAllele, gene.defaultAllele]
+	assocAllelesRemaining = findAllelesRemaining(refSites, allRefSites, outFile) #list of sets
+	if all(len(assocAllelesRemaining[i]) == 1 for i in range(len(refSites))):
+		uniqueAlleles = set.union(*assocAllelesRemaining)
+		if all(x.zygosity == 'HET' for x in refSites):
+			if len(uniqueAlleles) == 1:
+				return [list(uniqueAlleles)[0], gene.defaultAllele]
+			elif len(uniqueAlleles) == 2:
+				return [list(uniqueAlleles)[0], list(uniqueAlleles)[1]]
+		elif all(x.zygosity == 'HOM-ALT' for x in refSites):
+			if len(uniqueAlleles) == 1:
+				return [list(uniqueAlleles)[0], list(uniqueAlleles)[0]]
+	return 'Unknown genotype'
+	
+#inputs: gene object, 2-element list of genotype *alleles. enters func status into gene object.
+#returns phenotype.
+def calcPhenotype(gene): 	
+	funcIDs = [[y for y in gene.alleleFunc if x in gene.alleleFunc[y][1]] for x in gene.genotype]
+	if not (len(funcIDs) == 2 and len(funcIDs[0]) == 1 and len(funcIDs[1]) == 1):
+		return 'Unknown phenotype'
+	phens = [y for y in gene.phen if set([x[0] for x in funcIDs]) in [set(z) for z in gene.phen[y]]]
+	if len(phens) != 1:
+		return 'Unknown phenotype'
+	gene.funcStatus = [gene.alleleFunc[funcIDs[0][0]][0], gene.alleleFunc[funcIDs[1][0]][0]]
+	return phens[0]
+	
+#returns HOM-REF reference sites that have an associated allele that parameter reference site has.
+#(which can be eliminated when deciding between multiple associated *alleles)
+def findHomRef(refSite, allRefSites, outFile):
+	homRefSites = []
+	assocAlleles1 = set([re.sub('[A-Z]', '', z) for z in refSite.assocAllelesParsed])
+	for site in allRefSites:
+		assocAlleles2 = set([re.sub('[A-Z]', '', z) for z in site.assocAllelesParsed])
+		if assocAlleles1.intersection(assocAlleles2) and site.zygosity == 'HOM-REF':
+			homRefSites += [site]
+	for x in homRefSites:
+		printRefSite(x, outFile)
+	return homRefSites
+
+#find alleles that are not HOM-REF at other sites
+#(alleles remaining when deciding between multiple associated alleles)
+def findAllelesRemaining(refSites, allRefSites, outFile):
+	assocAllelesRemaining = [z.assocAllelesParsed for z in refSites]
+	for i in range(len(refSites)):
+		if len(refSites[i].assocAllelesParsed)>1:
+			homRef = findHomRef(refSites[i], allRefSites, outFile)
+			assocAllelesRemaining[i] = set([z for z in refSites[i].assocAllelesParsed if z not in set.union(*[w.assocAllelesParsed for w in homRef])]) 
+	return assocAllelesRemaining
+
+
+def printRefSite(refSite, outFile):
+	outFile.write(refSite.geneName + '\t' +  refSite.rsVariantID + '\t' + refSite.variantGenomicPos + 
+	'\t' + refSite.variantTranscriptPos + '\t' + refSite.zygosity + '\t' 
+	+ ','.join([str(z) for z in refSite.readDepths[-1]]) + '\t' + refSite.associatedAlleles + '\n')		
+
+
+			
 if __name__ == '__main__':
   main()
