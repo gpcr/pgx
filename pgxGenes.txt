@@ -1,14 +1,14 @@
 >name	CYP2C19	
 defaultAllele	*1
 alleleFunc	nonFunc	Non-functional	*2, *3, *4, *5, *6, *7, *8
-alleleFunc	normFunc	Normal function	*9, *10, *17, *29, *41, *49, *50, *54, *55, *59, *69, *72,
+alleleFunc	normFunc	Normal function	*1, *9, *10, *17, *29, *41, *49, *50, *54, *55, *59, *69, *72,
 alleleFunc	gainFunc	Gain of function	*17
 phen	Ultrarapid metabolizer	gainFunc gainFunc, normFunc gainFunc
 phen	Extensive metabolizer	normFunc normFunc
 phen	Intermediate metabolizer	gainFunc nonFunc, normFunc nonFunc
 phen	Poor metabolizer	nonFunc nonFunc
 
->name	CYP2D7
+>name	CYP2D6
 defaultAllele	*1
 alleleFunc	nonFunc	Non-functional	*3, *4, *5, *6, *7, *8, *11, *12, *13, *14, *15, *16, *18, *19, *20, *21, *31, *36, *38, *40, *42, *44, *47, *51, *56, *57, *62, 
 alleleFunc	redFunc	Reduced function	*9, *10, *17, *29, *41, *49, *50, *54, *55, *59, *69, *72,
