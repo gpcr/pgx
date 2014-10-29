@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import os
 import sys
 import argparse
 import vcf
@@ -8,11 +9,12 @@ import pgxClasses
 import re
 
 def main():
+	scriptPath = os.path.realpath(__file__)[:os.path.realpath(__file__).index(os.path.basename(__file__))]
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-v","--verbose")
-	parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default='pgx_genotyper_input.vcf')
-	parser.add_argument("--ref_site_filename", type=str, default='pgxRefSites.txt')
-	parser.add_argument("--gene_filename", type=str, default='pgxGenes.txt')
+	parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default=scriptPath+'/pgx_genotyper_input.vcf')
+	parser.add_argument("--ref_site_filename", type=str, default = scriptPath+'/pgxRefSites.txt')
+	parser.add_argument("--gene_filename", type=str, default=scriptPath+'/pgxGenes.txt')
 	parser.add_argument("--out_filename", type=str, default='out.txt')
 	parser.add_argument("-d","--depth", type=int, default=30)
 	parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
@@ -37,14 +39,14 @@ def main():
 			sys.exit(1)
 
 		ID = sample.samples[0]
-		print ID
+#		print ID
 		for (refrecord, record) in vcf.utils.walk_together(iter(tagsites),sample, kwargs=lambda r: (r.CHROM, r.POS, r.REF, R.ALT)):
 			if refrecord is None:
 				print 'ERROR: novel variant?', record
 				sys.exit(1)
 			if record is None:
-				if args.verbose or 'AscAlleles' in refrecord.INFO: 
-					print 'WARNING: tagsite missing', refrecord
+#				if args.verbose or 'AscAlleles' in refrecord.INFO: 
+#					print 'WARNING: tagsite missing', refrecord
 				continue 
 
 			depth = 0
@@ -60,34 +62,39 @@ def main():
 					spacer = '\t'
 				else:
 					spacer = ''
-				print spacer, ID, refrecord.INFO['Gene'], refrecord.INFO['AscAlleles'], call
+#				print spacer, ID, refrecord.INFO['Gene'], refrecord.INFO['AscAlleles'], call
 				#print refrecord.ALT, record.ALT	
 
 				#find associated alleles for just the variant allele with the most reads
-				try:
-					call['AD']
-				except AttributeError:
-					continue
-				assocAllelesRecordSet = set(processStrToList(
-				refrecord.INFO['AscAlleles'][call['AD'][1:].index(max(call['AD'][1:]))], delimREAssocAlleles))
+				assocAllelesRecordSet = set([])
+				GT = [int(z) for z in call['GT'].split('/')]	
+				assocAllelesRecordSet = set.union(*[set(processStrToList(x, delimREAssocAlleles)) for x in refrecord.INFO['AscAlleles']])
 				#find reference with the same set of *alleles as the record. 
 				for i in range(len(allRefSites)):
-						if (assocAllelesRecordSet == allRefSites[i].assocAllelesParsed) and (allRefSites[i].geneName == refrecord.INFO['Gene']):
-							if allRefSites[i].readDepths == 'undefined':
-								allRefSites[i].readDepths = [[z for z in call['AD'] if z in calcMaxNValuesInList(call['AD'], 2)]]
-							else:
-								allRefSites[i].readDepths += [[z for z in call['AD'] if z in calcMaxNValuesInList(call['AD'], 2)]]
-							allRefSites[i].zygosity = calcZygosity(allRefSites[i].readDepths[-1])
-							if call.gt_type is not 0:
-								finalRefSites += [allRefSites[i]]
-								printRefSite(allRefSites[i], outFile)		
+					if (assocAllelesRecordSet == allRefSites[i].assocAllelesParsed) and (allRefSites[i].geneName == refrecord.INFO['Gene']):
+						allRefSites[i].zygosity = calcZygosity(GT)
+						if call.gt_type is not 0:
+							try:
+								allRefSites[i].readDepths = [call['AD'][0], call['AD'][max(GT)]]	
+							except AttributeError:
+								pass
+							finalRefSites += [allRefSites[i]]
+							printRefSite(allRefSites[i], outFile)
+						else:
+							try:
+								allRefSites[i].readDepths = call['AD']	
+							except AttributeError:
+								pass
+						
 	#output genotypes, phenotypes						 
 	for gene in genes:
 		gene.genotype = calcGenotype(gene, [z for z in finalRefSites if z.geneName == gene.name], allRefSites, outFile)
 		gene.phenotype = calcPhenotype(gene)
 	outFile.write('\nGene\t*Alleles\tAllele functional status\tExpected phenotype\n')
 	for gene in genes:
-		outFile.write(gene.name + '\t' + '/'.join(gene.genotype) + '\t' + ' / '.join(gene.funcStatus) +'\t' + gene.phenotype + '\n')
+		outFile.write(gene.name + '\t' + ('/'.join(gene.genotype) if isinstance(gene.genotype, list) else gene.genotype)
+			 + '\t' + (' / '.join(gene.funcStatus) if isinstance(gene.funcStatus, list) else gene.funcStatus)
+			 +'\t' + gene.phenotype + '\n')
 	outFile.close()
 	
 #reads in tab-separated reference site file. in each row: associatedAlleles, cypVariantID, 
@@ -187,6 +194,8 @@ def checkRowLen(filename, row, rowNum, format, delim):
 		
 #converts string with elements separated by delimRE, into list 
 def processStrToList(str, delimRE):
+	if str == '':
+		return []
 	str = re.sub(delimRE, '$', str)
 	if len(str)>0 and str[0] == '$':
 		str = str[1:]
@@ -204,19 +213,14 @@ def calcMaxNValuesInList(list1, n):
 		list2.remove(highestVal)
 	return maxVals
 	
-#calculates zygosity given a list of reference and variant allele read depths.
 #returns string.
-def calcZygosity(readDepthList):
-	highestCount, secondHighestCount = calcMaxNValuesInList(readDepthList, 2)
-	if highestCount != 0:
-		if float(secondHighestCount) / highestCount >= 0.5:
-			return 'HET'
-		elif readDepthList[0] == highestCount:
-			return 'HOM-REF'
-		else:
-			return 'HOM-ALT'
-	return 'undefined'				
-
+def calcZygosity(GT):		
+	if all(x == 0 for x in GT):
+		return 'HOM-REF'
+	elif all(x!= 0 for x in GT):
+		return 'HOM-ALT'
+	else:
+		return 'HET'	
 
 #returns pair [*a, *b] indicating genotype	
 #operates on refSites pertaining to single gene
@@ -230,28 +234,36 @@ def calcGenotype(gene, refSites, allRefSites, outFile):
 	if len(refSites) == 0:
 		return [gene.defaultAllele, gene.defaultAllele]
 	assocAllelesRemaining = findAllelesRemaining(refSites, allRefSites, outFile) #list of sets
+	assocAllelesRemaining = [set([re.sub('[A-Z]', '', z) for z in w]) for w in assocAllelesRemaining]
 	if all(len(assocAllelesRemaining[i]) == 1 for i in range(len(refSites))):
 		uniqueAlleles = set.union(*assocAllelesRemaining)
 		if all(x.zygosity == 'HET' for x in refSites):
 			if len(uniqueAlleles) == 1:
-				return [list(uniqueAlleles)[0], gene.defaultAllele]
+				return sortAllelePair([list(uniqueAlleles)[0], gene.defaultAllele])
 			elif len(uniqueAlleles) == 2:
-				return [list(uniqueAlleles)[0], list(uniqueAlleles)[1]]
+				return sortAllelePair([list(uniqueAlleles)[0], list(uniqueAlleles)[1]])
 		elif all(x.zygosity == 'HOM-ALT' for x in refSites):
 			if len(uniqueAlleles) == 1:
-				return [list(uniqueAlleles)[0], list(uniqueAlleles)[0]]
+				return sortAllelePair([list(uniqueAlleles)[0], list(uniqueAlleles)[0]])
 	return 'Unknown genotype'
 	
+#sorts allele pair [*x, *y] by numeric value of x and y
+def sortAllelePair(allelePair):
+	if int(allelePair[0][1:]) < int(allelePair[1][1:]):	
+		return [allelePair[0], allelePair[1]]
+	else:
+		return [allelePair[1], allelePair[0]]
+
 #inputs: gene object, 2-element list of genotype *alleles. enters func status into gene object.
 #returns phenotype.
 def calcPhenotype(gene): 	
 	funcIDs = [[y for y in gene.alleleFunc if x in gene.alleleFunc[y][1]] for x in gene.genotype]
 	if not (len(funcIDs) == 2 and len(funcIDs[0]) == 1 and len(funcIDs[1]) == 1):
 		return 'Unknown phenotype'
+	gene.funcStatus = [gene.alleleFunc[funcIDs[0][0]][0], gene.alleleFunc[funcIDs[1][0]][0]]
 	phens = [y for y in gene.phen if set([x[0] for x in funcIDs]) in [set(z) for z in gene.phen[y]]]
 	if len(phens) != 1:
 		return 'Unknown phenotype'
-	gene.funcStatus = [gene.alleleFunc[funcIDs[0][0]][0], gene.alleleFunc[funcIDs[1][0]][0]]
 	return phens[0]
 	
 #returns HOM-REF reference sites that have an associated allele that parameter reference site has.
@@ -261,7 +273,7 @@ def findHomRef(refSite, allRefSites, outFile):
 	assocAlleles1 = set([re.sub('[A-Z]', '', z) for z in refSite.assocAllelesParsed])
 	for site in allRefSites:
 		assocAlleles2 = set([re.sub('[A-Z]', '', z) for z in site.assocAllelesParsed])
-		if assocAlleles1.intersection(assocAlleles2) and site.zygosity == 'HOM-REF':
+		if assocAlleles1.intersection(assocAlleles2) and refSite.geneName == site.geneName and site.zygosity == 'HOM-REF':
 			homRefSites += [site]
 	for x in homRefSites:
 		printRefSite(x, outFile)
@@ -272,16 +284,19 @@ def findHomRef(refSite, allRefSites, outFile):
 def findAllelesRemaining(refSites, allRefSites, outFile):
 	assocAllelesRemaining = [z.assocAllelesParsed for z in refSites]
 	for i in range(len(refSites)):
-		if len(refSites[i].assocAllelesParsed)>1:
+		assocAllelesParsed = set([re.sub('[A-Z]', '', z) for z in refSites[i].assocAllelesParsed])
+		if len(assocAllelesParsed)>1:
 			homRef = findHomRef(refSites[i], allRefSites, outFile)
-			assocAllelesRemaining[i] = set([z for z in refSites[i].assocAllelesParsed if z not in set.union(*[w.assocAllelesParsed for w in homRef])]) 
+			if len(homRef)>0:
+				assocAllelesRemaining[i] = set([z for z in refSites[i].assocAllelesParsed if z not in set.union(*[w.assocAllelesParsed for w in homRef])]) 
 	return assocAllelesRemaining
 
 
 def printRefSite(refSite, outFile):
 	outFile.write(refSite.geneName + '\t' +  refSite.rsVariantID + '\t' + refSite.variantGenomicPos + 
 	'\t' + refSite.variantTranscriptPos + '\t' + refSite.zygosity + '\t' 
-	+ ','.join([str(z) for z in refSite.readDepths[-1]]) + '\t' + refSite.associatedAlleles + '\n')		
+	+ (','.join(str(x) for x in refSite.readDepths) if refSite.readDepths != 'undefined' else 'undefined')
+	+ '\t' + refSite.associatedAlleles + '\n')		
 
 
 			
