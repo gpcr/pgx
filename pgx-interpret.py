@@ -16,8 +16,10 @@ def main():
 	parser.add_argument("--ref_site_filename", type=str, default = scriptPath+'/pgxRefSites.txt')
 	parser.add_argument("--gene_filename", type=str, default=scriptPath+'/pgxGenes.txt')
 	parser.add_argument("--out_filename", type=str, default='out.txt')
+	parser.add_argument("--discovery_gt_dir", type=str, default='.')
 	parser.add_argument("-d","--depth", type=int, default=30)
 	parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
+
 	args = parser.parse_args()
 
 	delimREGenesFile = r'[\s,;\/\\]+'
@@ -73,18 +75,32 @@ def main():
 				for i in range(len(allRefSites)):
 					if (assocAllelesRecordSet == allRefSites[i].assocAllelesParsed) and (allRefSites[i].geneName == refrecord.INFO['Gene']):
 						allRefSites[i].zygosity = calcZygosity(GT)
-						if call.gt_type is not 0:
-							try:
-								allRefSites[i].readDepths = [call['AD'][0], call['AD'][max(GT)]]	
-							except AttributeError:
-								pass
-							finalRefSites += [allRefSites[i]]
-							printRefSite(allRefSites[i], outFile)
-						else:
+						if call.gt_type is 0:
 							try:
 								allRefSites[i].readDepths = call['AD']	
 							except AttributeError:
 								pass
+						else:
+							try:
+								allRefSites[i].readDepths = [call['AD'][0], call['AD'][max(GT)]]	
+							
+							#look in discovery file for missing AD
+							except AttributeError:				
+								try:
+									discoveryF = open(args.discovery_gt_dir + '/' + samplefile.name[:samplefile.name.index('knownsitesGT.vcf')] + 'discoveryGT.vcf')
+									for discoveryRecord in vcf.Reader(discoveryF):
+										if discoveryRecord.CHROM == record.CHROM and discoveryRecord.POS == record.POS:
+											try:
+												allRefSites[i].readDepths = [discoveryRecord.genotype(ID)['AD'][0], discoveryRecord.genotype(ID)['AD'][max(GT)]]	
+											except AttributeError:
+												pass
+									discoveryF.close()		
+								except IOError:
+									pass
+									
+							finalRefSites += [allRefSites[i]]
+							printRefSite(allRefSites[i], outFile)
+
 						
 	#output genotypes, phenotypes						 
 	for gene in genes:
