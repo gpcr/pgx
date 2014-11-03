@@ -53,7 +53,6 @@ Options:
 --ref_vcf: Reference VCF filepath. Default: [pgx-interpret.py path] + "/pgx_genotyper_input.vcf".
 --ref_site_filename: Reference site specification filepath. Default: [pgx-interpret.py path] + "/pgxRefSites.txt".
 --gene_filename: Gene specification filepath. Default: [pgx-interpret.py path] + "/pgxGenes.txt".
---out_filename: Output textfile path. Default: "out.txt"
 --discovery_gt_dir: Directory of DISCOVERY mode (GATK Unified Genotyper) VCF files.
 -d, --depth: Read depth below which a low reads warning is printed.
 
@@ -63,8 +62,7 @@ python ~/pgx-interpret.py 1330-01.knownsitesGT.vcf
 pgxRefSites.txt, and pgxGenes.txt)
 
 python pgx-interpret.py 1330-01.knownsitesGT.vcf -v --ref_vcf genotyper_input.vcf 
---ref_site_filename refsites.txt --gene_filename genes1.txt --out_filename result.txt
---discovery_gt_dir ../discovery_gt -d 25
+--ref_site_filename refsites.txt --gene_filename genes1.txt --discovery_gt_dir ../discovery_gt -d 25
  
  
 Contact
