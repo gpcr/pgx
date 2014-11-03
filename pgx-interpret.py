@@ -15,26 +15,27 @@ def main():
 	parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default=scriptPath+'/pgx_genotyper_input.vcf')
 	parser.add_argument("--ref_site_filename", type=str, default = scriptPath+'/pgxRefSites.txt')
 	parser.add_argument("--gene_filename", type=str, default=scriptPath+'/pgxGenes.txt')
-	parser.add_argument("--out_filename", type=str, default='out.txt')
 	parser.add_argument("--discovery_gt_dir", type=str, default='.')
 	parser.add_argument("-d","--depth", type=int, default=30)
 	parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
 
 	args = parser.parse_args()
-
+	
 	delimREGenesFile = r'[\s,;\/\\]+'
 	delimREAssocAlleles = r'[^0-9A-Z*]+'
 	genes = readInGenes(args.gene_filename, delimREGenesFile)
 	allRefSites = readInRefSites(args.ref_site_filename, [z.name for z in genes], delimREAssocAlleles)
-	finalRefSites = [] 	#ref sites to output
-	outFile = open(args.out_filename,'w')
-	outFile.write('Gene\tVariant ID (rs#)\tVariant (genomic position)\tVariant (transcript' 
-  	+ ' position)\tZygosity\tRead Depth by reference base, variant\tAssociated *Alleles\n')
-  
+	
 	# Set up reference tables
 	tagsites = list(vcf.Reader(args.ref_vcf))
+
 	for samplefile in args.vcf_file:
 		# Process a sample
+		outFile = open(samplefile.name[:samplefile.name.index('knownsitesGT.vcf')]+'_out.vcf','w')
+		outFile.write('Gene\tVariant ID (rs#)\tVariant (genomic position)\tVariant (transcript' 
+		+ ' position)\tZygosity\tRead Depth by reference base, variant\tAssociated *Alleles\n')
+		finalRefSites = [] 	#ref sites to output
+		
 		sample = vcf.Reader(samplefile)
 		if len(sample.samples) > 1:
 			print 'Interpretation of multi-sample VCF files not implemented'
@@ -100,19 +101,18 @@ def main():
 									
 							finalRefSites += [allRefSites[i]]
 							printRefSite(allRefSites[i], outFile)
+							
+		#output genotypes, phenotypes						 
+		for gene in genes:
+			gene.genotype = calcGenotype(gene, [z for z in finalRefSites if z.geneName == gene.name], allRefSites, outFile)
+			gene.phenotype = calcPhenotype(gene)
+		outFile.write('\nGene\t*Alleles\tAllele functional status\tExpected phenotype\n')
+		for gene in genes:
+			outFile.write(gene.name + '\t' + ('/'.join(gene.genotype) if isinstance(gene.genotype, list) else gene.genotype)
+				 + '\t' + (' / '.join(gene.funcStatus) if isinstance(gene.funcStatus, list) else gene.funcStatus)
+				 +'\t' + gene.phenotype + '\n')
+		outFile.close()
 
-						
-	#output genotypes, phenotypes						 
-	for gene in genes:
-		gene.genotype = calcGenotype(gene, [z for z in finalRefSites if z.geneName == gene.name], allRefSites, outFile)
-		gene.phenotype = calcPhenotype(gene)
-	outFile.write('\nGene\t*Alleles\tAllele functional status\tExpected phenotype\n')
-	for gene in genes:
-		outFile.write(gene.name + '\t' + ('/'.join(gene.genotype) if isinstance(gene.genotype, list) else gene.genotype)
-			 + '\t' + (' / '.join(gene.funcStatus) if isinstance(gene.funcStatus, list) else gene.funcStatus)
-			 +'\t' + gene.phenotype + '\n')
-	outFile.close()
-	
 #reads in tab-separated reference site file. in each row: associatedAlleles, cypVariantID, 
 #gene, rsVariantID, variantGenomicPos, variantTranscriptPos.
 #returns list of pgxClasses.pgxRefSite objects.
