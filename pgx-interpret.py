@@ -15,6 +15,7 @@ def main():
 	parser.add_argument("--ref_vcf", type=argparse.FileType('r'), default=scriptPath+'/pgx_genotyper_input.vcf')
 	parser.add_argument("--ref_site_filename", type=str, default = scriptPath+'/pgxRefSites.txt')
 	parser.add_argument("--gene_filename", type=str, default=scriptPath+'/pgxGenes.txt')
+	parser.add_argument("--out_dir", type=str, default='pgx-interpret_out')
 	parser.add_argument("--discovery_gt_dir", type=str, default='.')
 	parser.add_argument("-d","--depth", type=int, default=30)
 	parser.add_argument('vcf_file', nargs='+', type=argparse.FileType('r'))
@@ -25,15 +26,18 @@ def main():
 	delimREAssocAlleles = r'[^0-9A-Z*]+'
 	genes = readInGenes(args.gene_filename, delimREGenesFile)
 	allRefSites = readInRefSites(args.ref_site_filename, [z.name for z in genes], delimREAssocAlleles)
-	
+	if not os.path.exists(args.out_dir):
+		os.makedirs(args.out_dir)
+		
 	# Set up reference tables
 	tagsites = list(vcf.Reader(args.ref_vcf))
-
 	for samplefile in args.vcf_file:
 		# Process a sample
-		outFile = open(samplefile.name[:samplefile.name.index('knownsitesGT.vcf')]+'_out.vcf','w')
+		inFileName = os.path.basename(samplefile.name)
+		outFile = open(args.out_dir + '/' + inFileName[:inFileName.index('.knownsitesGT.vcf')] + '_out.vcf', 'w')
 		outFile.write('Gene\tVariant ID (rs#)\tVariant (genomic position)\tVariant (transcript' 
 		+ ' position)\tZygosity\tRead Depth by reference base, variant\tAssociated *Alleles\n')
+		
 		finalRefSites = [] 	#ref sites to output
 		
 		sample = vcf.Reader(samplefile)
